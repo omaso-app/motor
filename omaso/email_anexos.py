@@ -1,47 +1,51 @@
-"""Extrai anexos de uma mensagem do Gmail baixada em formato RAW (resultado da ferramenta get_message)."""
+"""Extrai anexos de uma mensagem do Gmail baixada em RAW (get_message messageFormat=RAW)."""
 import base64, email, json, os, re
 from email import policy
 
 
-def _raw_bytes(path):
-    data = open(path, 'rb').read()
+def _raw(obj):
+    if isinstance(obj, dict):
+        for k in ('raw', 'rawContent', 'raw_message'):
+            if isinstance(obj.get(k), str):
+                return obj[k]
+        for v in obj.values():
+            r = _raw(v)
+            if r:
+                return r
+    if isinstance(obj, list):
+        for v in obj:
+            r = _raw(v)
+            if r:
+                return r
+    return None
+
+
+def extrair(raw_json, out):
+    """raw_json: arquivo salvo pela ferramenta (JSON com o campo raw em base64url) ou o .eml.
+    Grava os anexos em `out` e devolve [{nome, caminho, tipo, bytes}]."""
+    data = open(raw_json, 'rb').read()
     try:
-        j = json.loads(data)
-    except Exception:
-        return data  # já é .eml
-    # procura o maior texto base64 dentro do JSON
-    best = ''
-
-    def walk(x):
-        nonlocal best
-        if isinstance(x, dict):
-            for v in x.values():
-                walk(v)
-        elif isinstance(x, list):
-            for v in x:
-                walk(v)
-        elif isinstance(x, str) and len(x) > len(best):
-            best = x
-    walk(j)
-    s = best.strip()
-    if s.startswith('From ') or 'Content-Type' in s[:2000]:
-        return s.encode()
-    s = s.replace('-', '+').replace('_', '/')
-    return base64.b64decode(s + '=' * (-len(s) % 4))
-
-
-def extrair(path, out):
-    msg = email.message_from_bytes(_raw_bytes(path), policy=policy.default)
+        raw = _raw(json.loads(data))
+        msgb = base64.urlsafe_b64decode(raw + '=' * (-len(raw) % 4)) if raw else data
+    except (ValueError, UnicodeDecodeError):
+        msgb = data
+    msg = email.message_from_bytes(msgb, policy=policy.default)
     os.makedirs(out, exist_ok=True)
-    res = {'assunto': str(msg.get('subject', '')), 'de': str(msg.get('from', '')), 'data': str(msg.get('date', '')), 'anexos': []}
-    for part in msg.iter_attachments():
-        nome = part.get_filename() or 'anexo'
-        nome = re.sub(r'[\\/:*?"<>|]+', '-', nome)
-        p = os.path.join(out, nome)
-        i = 1
-        while os.path.exists(p):
-            b, e = os.path.splitext(nome); p = os.path.join(out, f'{b}_{i}{e}'); i += 1
+    res = []
+    for part in msg.walk():
+        fn = part.get_filename()
+        if not fn or part.is_multipart():
+            continue
+        nome = re.sub(r'[\\/:*?"<>|]+', '_', fn).strip()
         payload = part.get_payload(decode=True) or b''
-        open(p, 'wb').write(payload)
-        res['anexos'].append({'arquivo': p, 'tipo': part.get_content_type(), 'bytes': len(payload)})
-    return res
+        caminho = os.path.join(out, nome)
+        i = 1
+        while os.path.exists(caminho):
+            base, ext = os.path.splitext(nome)
+            caminho = os.path.join(out, f'{base}_{i}{ext}')
+            i += 1
+        open(caminho, 'wb').write(payload)
+        res.append({'nome': os.path.basename(caminho), 'caminho': caminho, 'tipo': part.get_content_type(), 'bytes': len(payload)})
+    meta = {'assunto': str(msg.get('subject', '')), 'de': str(msg.get('from', '')), 'data': str(msg.get('date', '')), 'anexos': res}
+    json.dump(meta, open(os.path.join(out, '_anexos.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    return meta
