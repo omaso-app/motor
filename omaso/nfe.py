@@ -1,104 +1,87 @@
-"""Leitura de XML de NF-e / NFA-e e de eventos (cancelamento)."""
+"""Leitura de XML de NF-e / NFA-e (modelo 55) e de eventos (cancelamento etc.)."""
 import re
 import xml.etree.ElementTree as ET
 
-NS = '{http://www.portalfiscal.inf.br/nfe}'
+FIN = {'1': 'normal', '2': 'complementar', '3': 'ajuste', '4': 'devolucao'}
 
 
-def _p(path):
-    return '/'.join(NS + p if p and not p.startswith('.') else p for p in path.split('/'))
+def _strip(tag):
+    return tag.split('}', 1)[-1]
 
 
-def _t(el, path):
+def _idx(root):
+    for el in root.iter():
+        el.tag = _strip(el.tag)
+    return root
+
+
+def _t(el, path, default=''):
     if el is None:
-        return ''
-    x = el.find(_p(path))
-    return x.text.strip() if x is not None and x.text else ''
+        return default
+    x = el.find(path)
+    return (x.text or '').strip() if x is not None and x.text else default
 
 
-def ler(path):
-    """Devolve um dicionário com os dados principais, ou {'tipo':'desconhecido'}."""
-    raw = open(path, 'rb').read().decode('utf-8', 'ignore').lstrip('\ufeff')
-    try:
-        root = ET.fromstring(raw)
-    except ET.ParseError:
-        return {'tipo': 'desconhecido', 'arquivo': path}
-    tag = root.tag.replace(NS, '')
-    # ---- evento (cancelamento, carta de correção) ----
-    if 'Evento' in tag or root.find('.//' + NS + 'infEvento') is not None:
-        ev = root.find('.//' + NS + 'infEvento')
-        if ev is not None:
-            return {
-                'tipo': 'evento',
-                'tpEvento': _t(ev, 'tpEvento'),
-                'chave': _t(ev, 'chNFe'),
-                'data': (_t(ev, 'dhEvento') or '')[:10],
-                'descricao': _t(ev, 'detEvento/descEvento'),
-                'arquivo': path,
-            }
-    inf = root.find('.//' + NS + 'infNFe')
-    if inf is None:
-        return {'tipo': 'desconhecido', 'arquivo': path}
-    chave = (inf.get('Id') or '').replace('NFe', '')
-    ide = inf.find(NS + 'ide')
-    emit = inf.find(NS + 'emit')
-    dest = inf.find(NS + 'dest')
-    tot = inf.find(_p('total/ICMSTot'))
-    prods = []
-    for det in inf.findall(NS + 'det'):
-        p = det.find(NS + 'prod')
-        if p is None:
-            continue
-        prods.append({
-            'descricao': _t(p, 'xProd'), 'cfop': _t(p, 'CFOP'), 'ncm': _t(p, 'NCM'),
-            'qtd': _num(_t(p, 'qCom')), 'unidade': _t(p, 'uCom'), 'valor': _num(_t(p, 'vProd')),
-        })
-    refs = [r.text.strip() for r in inf.iter(NS + 'refNFe') if r.text]
-    venc = [v.text for v in inf.iter(NS + 'dVenc') if v.text]
-    prot = root.find('.//' + NS + 'infProt')
-    return {
-        'tipo': 'nfe',
-        'chave': chave,
-        'numero': _t(ide, 'nNF') if ide is not None else '',
-        'serie': _t(ide, 'serie') if ide is not None else '',
-        'modelo': _t(ide, 'mod') if ide is not None else '',
-        'data': ((_t(ide, 'dhEmi') or _t(ide, 'dEmi')) if ide is not None else '')[:10],
-        'natureza': _t(ide, 'natOp') if ide is not None else '',
-        'finalidade': _t(ide, 'finNFe') if ide is not None else '',  # 1 normal, 2 compl., 3 ajuste, 4 devolução
-        'emitente': {
-            'nome': _t(emit, 'xNome') if emit is not None else '',
-            'doc': (_t(emit, 'CNPJ') or _t(emit, 'CPF')) if emit is not None else '',
-            'ie': _t(emit, 'IE') if emit is not None else '',
-            'municipio': _t(emit, 'enderEmit/xMun') if emit is not None else '',
-        },
-        'destinatario': {
-            'nome': _t(dest, 'xNome') if dest is not None else '',
-            'doc': (_t(dest, 'CNPJ') or _t(dest, 'CPF')) if dest is not None else '',
-            'ie': _t(dest, 'IE') if dest is not None else '',
-        },
-        'cfops': sorted({p['cfop'] for p in prods if p['cfop']}),
-        'valor': _num(_t(tot, 'vNF')) if tot is not None else None,
-        'produtos': prods,
-        'refs': refs,
-        'vencimentos': venc,
-        'autorizada': (prot is not None and _t(prot, 'cStat') in ('100', '150')),
-        'info': (_t(inf, 'infAdic/infCpl') or '')[:500],
-        'arquivo': path,
-    }
-
-
-def _num(s):
+def _f(s):
     try:
         return float(s)
     except (TypeError, ValueError):
-        return None
+        return 0.0
+
+
+def _pessoa(el):
+    if el is None:
+        return {}
+    return {'nome': _t(el, 'xNome'), 'doc': _t(el, 'CNPJ') or _t(el, 'CPF'),
+            'ie': _t(el, 'IE'), 'uf': _t(el, 'enderEmit/UF') or _t(el, 'enderDest/UF'),
+            'mun': _t(el, 'enderEmit/xMun') or _t(el, 'enderDest/xMun')}
+
+
+def ler(path):
+    try:
+        root = _idx(ET.parse(path).getroot())
+    except ET.ParseError as e:
+        return {'tipo': 'desconhecido', 'erro': str(e)}
+    ev = root.find('.//infEvento')
+    if root.find('.//infNFe') is None and ev is not None:
+        return {'tipo': 'evento', 'chave': _t(ev, 'chNFe'), 'evento': _t(ev, 'tpEvento'),
+                'descricao': _t(ev, 'detEvento/descEvento'), 'data': _t(ev, 'dhEvento')[:10],
+                'cancelamento': _t(ev, 'tpEvento') == '110111'}
+    inf = root.find('.//infNFe')
+    if inf is None:
+        return {'tipo': 'desconhecido'}
+    ide = inf.find('ide')
+    chave = re.sub(r'\D', '', inf.get('Id', '')) or _t(root, './/protNFe/infProt/chNFe')
+    prods = []
+    for det in inf.findall('det'):
+        p = det.find('prod')
+        prods.append({'codigo': _t(p, 'cProd'), 'descricao': _t(p, 'xProd'), 'ncm': _t(p, 'NCM'),
+                      'cfop': _t(p, 'CFOP'), 'unidade': _t(p, 'uCom'), 'qtd': _f(_t(p, 'qCom')),
+                      'valor': _f(_t(p, 'vProd'))})
+    refs = [_t(r, 'refNFe') for r in (ide.findall('NFref') if ide is not None else []) if _t(r, 'refNFe')]
+    venc = [{'data': _t(d, 'dVenc'), 'valor': _f(_t(d, 'vDup'))} for d in inf.findall('cobr/dup')]
+    tot = inf.find('total/ICMSTot')
+    return {
+        'tipo': 'nfe', 'chave': chave, 'numero': _t(ide, 'nNF'), 'serie': _t(ide, 'serie'),
+        'modelo': _t(ide, 'mod'),
+        'data': (_t(ide, 'dhEmi') or _t(ide, 'dEmi'))[:10],
+        'finalidade': FIN.get(_t(ide, 'finNFe'), _t(ide, 'finNFe')),
+        'natureza': _t(ide, 'natOp'), 'tpNF': _t(ide, 'tpNF'),
+        'emitente': _pessoa(inf.find('emit')), 'destinatario': _pessoa(inf.find('dest')),
+        'cfops': sorted({p['cfop'] for p in prods if p['cfop']}),
+        'valor': _f(_t(tot, 'vNF')), 'produtos': prods, 'refs': refs, 'vencimentos': venc,
+        'info': _t(inf, 'infAdic/infCpl') + ' ' + _t(inf, 'infAdic/infAdFisco'),
+        'protocolo': _t(root, './/protNFe/infProt/nProt'),
+    }
+
+
+BOV = re.compile(r'BOVIN|NOVILH|GARROT|BEZERR|VACA|BOI\b|BOIS\b|TOURO|MAMOT|NELORE|ANELORAD|CABE', re.I)
+
+
+def eh_gado(rec):
+    return any(BOV.search(p['descricao']) for p in rec.get('produtos', []))
 
 
 def cabecas(rec):
-    """Estimativa de cabeças de gado pelos produtos (unidade CB/CAB/UN em produtos bovinos)."""
-    n = 0
-    for p in rec.get('produtos') or []:
-        d = (p.get('descricao') or '').upper()
-        if any(w in d for w in ('BOVIN', 'NOVILH', 'GARROT', 'BEZERR', 'VACA', 'BOI ', 'BOIS', 'TOURO', 'MACHO', 'FEMEA')):
-            n += int(p.get('qtd') or 0)
-    return n or None
+    """Cabeças de gado na nota (soma das quantidades dos itens bovinos)."""
+    return int(round(sum(p['qtd'] for p in rec.get('produtos', []) if BOV.search(p['descricao']))))
