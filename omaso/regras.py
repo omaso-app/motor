@@ -1,162 +1,177 @@
-"""Sugestão de classificação de uma NF-e, usando as regras de cada cliente (meta/regras e meta/ies).
+"""Classificação sugerida de uma NF-e lida por nfe.ler(), a partir das regras do cliente.
 
-O Claude da conferência confere a sugestão e decide; nada aqui é definitivo.
-
-Formato de meta/regras (todos os campos são opcionais):
+Formato de meta/regras (banco do OMASO do cliente):
 {
-  "inicio": "2025-10-01",                 # notas antes disso vão para "Notas anteriores a ..."
-  "cat_padrao": "698 - Despesas Gerais",
-  "propriedade_por_data": {"<ie>": [{"ate": "2026-04-30", "prop": "Fazenda X"}, {"desde": "2026-05-01", "prop": "Sítio Y"}]},
-  "fornecedores": [{"emitente_contem": ["POSTO"], "produto_contem": [], "cat": "347 - Combustíveis e Lubrificantes"}],
-  "apelidos": [{"contem": "POSTO CENTRAL", "nome": "Posto-Central"}],
-  "canceladas": ["<chave de 44 dígitos>"],
-  "decisoes": ["texto livre com decisões do produtor"]
+  "por_ie": {
+    "<IE>": {
+      "inicio": "AAAA-MM-DD",                 # notas anteriores vão para _Documentos Gerais
+      "cat_padrao": "698 - Despesas Gerais",  # despesa sem regra
+      "propriedade_por_data": [{"ate": "AAAA-MM-DD", "prop": "..."}, {"desde": "AAAA-MM-DD", "prop": "..."}],
+      "fornecedores": [                       # a primeira regra que casar vale
+        {"emitente_contem": ["POSTO"], "produto_contem": ["SAL"], "cat": "575 - Sal Mineral"}
+      ],
+      "apelidos": {"TEXTO NO NOME DO EMITENTE": "Apelido-Curto"},
+      "decisoes": ["texto livre com decisões do produtor"]
+    }
+  }
 }
 """
-from .util import limpo, sem_acento, brl, pasta_mes
-from .nfe import cabecas
+import re
+from .util import sem_acento, limpo, brl, pasta_mes
+from .nfe import eh_gado, cabecas
 
-VENDA_CFOPS = ('5101', '5102', '6101', '6102', '5103', '6103', '5105', '6105', '7101', '7102')
-GADO = ('BOVIN', 'NOVILH', 'GARROT', 'BEZERR', 'VACA', 'BOI ', 'BOIS', 'TOURO', 'GADO')
+CAT_VENDA = 'Venda de Bovinos'
+CAT_COMPRA = 'Compra de Animais Bovinos'
+CAT_IDN = '000 - A Identificar'
+GERAIS = '_Documentos Gerais'
 
 
-def _digits(s):
-    return ''.join(c for c in (s or '') if c.isdigit())
+def _n(s):
+    return re.sub(r'\D', '', str(s or '')).lstrip('0')
 
 
-def produtor_por_doc(db, doc):
-    d = _digits(doc)
-    for x in db.ies:
-        if _digits(x.get('doc')) == d and d:
-            return x
+def _U(s):
+    return sem_acento(s or '').upper()
+
+
+def nossa_ie(db, pessoa):
+    """Inscrição do cliente que corresponde ao emitente/destinatário (pela IE; zeros à esquerda não contam)."""
+    if not pessoa:
+        return None
+    ie = _n(pessoa.get('ie'))
+    if ie:
+        for i in db.ies:
+            if _n(i['ie']) == ie:
+                return i
     return None
 
 
-def produtor_por_ie(db, ie):
-    i = _digits(ie).lstrip('0')
-    for x in db.ies:
-        if _digits(x.get('ie')).lstrip('0') == i and i:
-            return x
-    return None
+def doc_do_cliente(db, pessoa):
+    d = re.sub(r'\D', '', (pessoa or {}).get('doc', ''))
+    return next((i for i in db.ies if re.sub(r'\D', '', i.get('doc', '')) == d), None) if d else None
 
 
-def propriedade(db, ie, data, texto=''):
-    x = db.ie(ie)
-    props = [p.get('nome') for p in x.get('propriedades') or [] if p.get('nome')]
-    up = sem_acento(texto).upper()
-    for p in props:  # o documento cita a propriedade?
-        if sem_acento(p).upper() in up:
+def propriedade(ie, regras, rec, data):
+    props = [p['nome'] for p in ie.get('propriedades', [])]
+    texto = _U(rec.get('info', '') + ' ' + ' '.join(p['descricao'] for p in rec.get('produtos', [])))
+    for p in props:
+        if _U(p) in texto or _U(p.split(' ', 1)[-1]) in texto:
             return p, 'citada no documento'
-    for r in (db.regras.get('propriedade_por_data') or {}).get(str(x['ie']), []):
-        if (not r.get('desde') or data >= r['desde']) and (not r.get('ate') or data <= r['ate']):
+    for r in regras.get('propriedade_por_data', []):
+        if ('ate' in r and data <= r['ate']) or ('desde' in r and data >= r['desde']):
             return r['prop'], 'regra por data'
-    return (props[0] if props else 'Sem propriedade'), 'primeira propriedade cadastrada'
+    return (props[0] if props else 'Propriedade'), 'primeira cadastrada'
 
 
-def apelido(db, nome):
-    up = sem_acento(nome).upper()
-    for a in db.regras.get('apelidos') or []:
-        if a.get('contem', '').upper() in up:
-            return a['nome']
-    return limpo(nome.title(), 25)
+def categoria(regras, rec):
+    em = _U(rec['emitente'].get('nome'))
+    prods = _U(' '.join(p['descricao'] for p in rec.get('produtos', [])))
+    for r in regras.get('fornecedores', []):
+        ok_e = not r.get('emitente_contem') or any(_U(x) in em for x in r['emitente_contem'])
+        ok_p = not r.get('produto_contem') or any(_U(x) in prods for x in r['produto_contem'])
+        if ok_e and ok_p:
+            return r['cat']
+    return regras.get('cat_padrao') or '698 - Despesas Gerais'
 
 
-def categoria(db, rec):
-    em = sem_acento(rec['emitente']['nome']).upper()
-    prods = rec.get('produtos') or []
-    top = max(prods, key=lambda p: p.get('valor') or 0) if prods else {}
-    desc = sem_acento(top.get('descricao') or '').upper()
-    for r in db.regras.get('fornecedores') or []:
-        if r.get('emitente_contem') and not any(sem_acento(s).upper() in em for s in r['emitente_contem']):
-            continue
-        if r.get('produto_contem') and not any(sem_acento(s).upper() in desc for s in r['produto_contem']):
-            continue
-        return r['cat'], 'regra de fornecedor'
-    return db.regras.get('cat_padrao') or '698 - Despesas Gerais', 'categoria padrão (confira)'
+def apelido(regras, pessoa):
+    nome = (pessoa or {}).get('nome', '')
+    for k, v in (regras.get('apelidos') or {}).items():
+        if _U(k) in _U(nome) or re.sub(r'\D', '', k) and re.sub(r'\D', '', k) == re.sub(r'\D', '', pessoa.get('doc', '')):
+            return v
+    palavras = [w for w in limpo(nome).split('-') if w.upper() not in ('LTDA', 'ME', 'EIRELI', 'SA', 'S.A', 'EPP', 'DE', 'DA', 'DO', 'DOS', 'DAS', 'E')]
+    return '-'.join(palavras[:2]) or 'Sem-Nome'
 
 
-def _tem_gado(rec):
-    return any(any(g in sem_acento(p.get('descricao') or '').upper() for g in GADO) for p in rec.get('produtos') or [])
+def pasta_lancamento(ie, prop, cat, data, label):
+    return f"{ie['pasta']}/{prop}/{pasta_mes(data)}/{sem_acento(cat)}/{data}_{label}"
+
+
+def pasta_geral(ie, sub):
+    return f"{ie['pasta']}/{GERAIS}/{sub}"
 
 
 def classificar(db, rec):
-    """Sugestão para um registro de nfe.ler()."""
-    inicio = db.regras.get('inicio') or '1900-01-01'
-    out = {'chave': rec.get('chave'), 'avisos': []}
-    if rec['tipo'] == 'evento':
-        out.update(destino='geral', pasta_geral='Notas Canceladas', motivo=f"evento {rec.get('tpEvento')}")
+    out = {'avisos': []}
+    if rec.get('tipo') == 'evento':
+        ie = db.ies[0] if db.ies else {'pasta': ''}
+        if rec.get('cancelamento'):
+            out.update(destino='geral', pasta=pasta_geral(ie, 'Notas Canceladas'),
+                       avisos=[f"Cancelamento da chave {rec['chave']}: se houver lançamento com essa chave, ele deve ser excluído."])
+        else:
+            out.update(destino='geral', pasta=pasta_geral(ie, 'Outras Empresas e Terceiros'))
         return out
-    if rec['tipo'] != 'nfe':
-        out.update(destino='ler', motivo='não é XML de NF-e; ler o documento')
-        return out
-    if rec['chave'] in db.chaves:
-        out.update(destino='repetido', motivo='chave já lançada')
-        return out
-    if rec['chave'] in set(db.regras.get('canceladas') or []):
-        out.update(destino='geral', pasta_geral='Notas Canceladas', motivo='chave na lista de canceladas')
-        return out
-    emit_prod = produtor_por_doc(db, rec['emitente']['doc'])
-    dest_prod = produtor_por_doc(db, rec['destinatario']['doc'])
+    if rec.get('tipo') != 'nfe':
+        return {'destino': 'ler', 'avisos': ['Não é NF-e: ler o documento.']}
+
+    if rec['chave'] and rec['chave'] in db.chaves:
+        return {'destino': 'repetido', 'avisos': [f"Chave {rec['chave']} já lançada."]}
+
+    em_ie, de_ie = nossa_ie(db, rec['emitente']), nossa_ie(db, rec['destinatario'])
+    ie = em_ie or de_ie
     data = rec['data']
-    v = rec.get('valor') or 0
-    dev = rec.get('finalidade') == '4'
-    if emit_prod and dev:
-        # devolução emitida pelo próprio produtor (ex.: devolve parte do gado comprado)
-        ie = produtor_por_ie(db, rec['emitente']['ie']) or emit_prod
-        quem = apelido(db, rec['destinatario']['nome'])
-        if set(rec['cfops']) & {'5202', '6202', '5201', '6201', '5209', '6209'} or _tem_gado(rec):
-            kind, cat = 'compra', 'Compra de Animais Bovinos' if _tem_gado(rec) else 'Devolução de compra'
+    if not ie:
+        cli = doc_do_cliente(db, rec['destinatario']) or doc_do_cliente(db, rec['emitente'])
+        base = cli or (db.ies[0] if db.ies else {'pasta': ''})
+        if cli:
+            out.update(destino='fora', ie=cli['ie'], pasta=f"{cli['pasta']}/_Fora da Atividade Rural/{pasta_mes(data)}")
         else:
-            kind, cat = 'desp', 'Devolução de compra'
-        out['avisos'].append('devolução emitida pelo produtor: normalmente entra JUNTO do lançamento da compra original (mesma pasta), abatendo o valor')
-    elif emit_prod and (set(rec['cfops']) & set(VENDA_CFOPS)):
-        prod = emit_prod
-        ie = produtor_por_ie(db, rec['emitente']['ie']) or prod
-        kind, cat = 'venda', 'Venda de Bovinos' if _tem_gado(rec) else 'Outras Receitas'
-        quem = apelido(db, rec['destinatario']['nome'])
-    elif dest_prod:
-        ie = produtor_por_ie(db, rec['destinatario']['ie'])
-        if not ie:
-            out.update(destino='fora', pasta_geral='_Fora da Atividade Rural/' + pasta_mes(data),
-                       motivo='destinatário é o produtor, mas sem inscrição estadual na nota')
-            return out
-        quem = apelido(db, rec['emitente']['nome'])
-        if _tem_gado(rec):
-            kind, cat = 'compra', 'Compra de Animais Bovinos'
+            out.update(destino='geral', pasta=pasta_geral(base, 'Outras Empresas e Terceiros'))
+        return out
+
+    regras = db.regras_ie(ie['ie'])
+    if regras.get('inicio') and data < regras['inicio']:
+        y, m = regras['inicio'][:4], regras['inicio'][5:7]
+        return {'destino': 'geral', 'ie': ie['ie'], 'pasta': pasta_geral(ie, f'Notas anteriores a {m}-{y}'), 'avisos': []}
+
+    gado, cab = eh_gado(rec), cabecas(rec)
+    dev = rec['finalidade'] == 'devolucao'
+    comp = rec['finalidade'] == 'complementar'
+    valor = rec['valor']
+    if em_ie and not de_ie:                      # nota emitida pelo produtor
+        outro = rec['destinatario']
+        if dev:                                   # devolução de compra
+            kind, cat, valor, cab = 'compra', CAT_COMPRA, -valor, -cab
+            out['avisos'].append('Devolução emitida pelo produtor: lançada como compra negativa. Confira a nota de origem: ' + ', '.join(rec['refs']))
+        elif rec['tpNF'] == '0' and gado:         # nota de entrada emitida pelo produtor (compra de gado)
+            kind, cat = 'compra', CAT_COMPRA
+        elif gado or comp:
+            kind, cat = 'venda', CAT_VENDA
         else:
-            kind = 'desp'
-            cat, how = categoria(db, rec)
-            if 'padrão' in how:
-                out['avisos'].append('categoria pela regra padrão: confira')
+            kind, cat = 'venda', CAT_VENDA
+            out['avisos'].append('Nota emitida pelo produtor sem gado nos itens: conferir se é venda da atividade rural.')
+    else:                                         # nota recebida
+        outro = rec['emitente']
+        if dev:                                   # comprador devolveu gado vendido
+            kind, cat, valor, cab = 'venda', CAT_VENDA, -valor, -cab
+            out['avisos'].append('Devolução recebida: lançada como venda negativa. Nota de origem: ' + ', '.join(rec['refs']))
+        elif gado:
+            kind, cat = 'compra', CAT_COMPRA
+        else:
+            kind, cat, cab = 'desp', categoria(regras, rec), 0
+
+    prop, como = propriedade(ie, regras, rec, data)
+    ap = apelido(regras, outro)
+    num = rec['numero']
+    if kind in ('venda', 'compra'):
+        if dev:
+            label = f"{ap}_Devolucao-{abs(cab)}cab_NFe{num}" + (f"-ref-NF{int(rec['refs'][0][25:34])}" if rec['refs'] else '')
+        elif comp:
+            label = f"{ap}_Complemento_NF{num}"
+        else:
+            label = f"{ap}_{cab}-Bovinos_NF{num}"
     else:
-        out.update(destino='geral', pasta_geral='Outras Empresas e Terceiros',
-                   motivo='destinatário não é um produtor cadastrado')
-        return out
-    if data < inicio:
-        out.update(destino='geral', pasta_geral=f"Notas anteriores a {inicio[5:7]}-{inicio[:4]}",
-                   motivo=f'emitida antes de {inicio}')
-        return out
-    if dev:
-        v = -abs(v)
-        out['avisos'].append('devolução (finNFe 4): valor negativo; confira a categoria da nota original ' + ','.join(rec.get('refs') or []))
-    prop, how = propriedade(db, ie['ie'], data, rec.get('info', ''))
-    label = f"NFe{rec['numero']}_{quem}_R{brl(v)}"
-    out.update(
-        destino='lancamento', ie=str(ie['ie']), prop=prop, prop_motivo=how, cat=cat, kind=kind,
-        date=data, label=label, value=round(v, 2), heads=cabecas(rec) if kind in ('compra', 'venda') else None,
-        pasta=pasta_lancamento(ie, prop, data, cat, label),
-    )
-    if rec.get('vencimentos') and kind == 'desp':
-        out['avisos'].append('nota com boleto: o mês do lançamento é o do pagamento; sem comprovante, fica a data da nota e uma pendência')
+        label = f"NFe{num}_{ap}_R{brl(valor)}"
+    notes = []
+    if kind == 'desp':
+        notes.append(f"Falta o comprovante de pagamento da NF-e {num} ({ap} — R$ {brl(valor)})")
+    elif kind == 'compra' and not dev:
+        notes.append(f"Falta o comprovante de pagamento da NF {num} ({ap} — R$ {brl(valor)})")
+    if rec['vencimentos']:
+        out['avisos'].append('Nota a prazo: o mês do lançamento é o do pagamento. Vencimentos: ' +
+                             ', '.join(f"{v['data']} R$ {brl(v['valor'])}" for v in rec['vencimentos']))
+    out.update(destino='lancamento', ie=ie['ie'], prop=prop, prop_por=como, cat=cat, kind=kind, date=data,
+               label=label, value=round(valor, 2), heads=cab or None, notes=notes, chaves=[rec['chave']],
+               pasta=pasta_lancamento(ie, prop, cat, data, label),
+               arquivo=f"{data}_NFe{num}{'_Devolucao' if dev else ''}{'_Complemento' if comp else ''}_{limpo(outro.get('nome',''), 28)}_R{brl(abs(valor))}")
     return out
-
-
-def pasta_lancamento(ie, prop, date, cat, label):
-    """Caminho relativo à pasta INSCRIÇÕES."""
-    return '/'.join([ie['pasta'], prop, pasta_mes(date), sem_acento(cat), f"{date}_{limpo(label, 70)}"])
-
-
-def pasta_geral(ie, nome):
-    if nome.startswith('_Fora'):
-        return '/'.join([ie['pasta'], nome])
-    return '/'.join([ie['pasta'], '_Documentos Gerais', nome])
