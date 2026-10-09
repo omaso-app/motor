@@ -58,6 +58,7 @@ Para cada arquivo:
    - `destino: geral` ou `fora` → mover para a pasta indicada em `pasta` (sem lançamento).
    - Procure em INSERIR ARQUIVOS o PDF da mesma nota (mesmo número/chave no nome ou no texto) e trate os dois juntos.
 4. **PDF / foto**: leia (pdftotext; para imagens e PDF escaneado, abra o arquivo e olhe). Decida:
+   - **antes de tudo, confira as partes**: só é lançamento se o produtor (CPF/CNPJ ou IE de `meta/ies`) for o **emitente ou o destinatário/tomador**. Nota entre terceiros (ex.: do vendedor para um intermediário que depois revendeu ao produtor) → mova para `_Documentos Gerais/Outras Empresas e Terceiros`, sem lançamento;
    - é a nota/recibo de um lançamento que já existe (mesmo número, emitente e valor)? → mova o arquivo para a pasta desse lançamento e acrescente o arquivo em `arquivos`/`links` dele (e tire a pendência correspondente das notas, se for o comprovante que faltava);
    - é comprovante de pagamento de uma nota que já existe? → mesma coisa; se o pagamento muda o mês, avise no resumo (não mova o lançamento de mês sozinho);
    - é um documento novo de despesa/compra/venda → lançamento novo (passo 5), classificado pelas mesmas regras (propriedade por data, categoria pelo fornecedor);
