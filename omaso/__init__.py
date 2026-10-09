@@ -1,0 +1,1 @@
+"""Motor do OMASO."""
