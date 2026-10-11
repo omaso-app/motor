@@ -51,15 +51,19 @@ Atenção: lançamentos antigos podem ter `pasta` começando com um nome antigo 
 
 Leia o documento inteiro procurando o nome da propriedade. Se estiver escrito **Vale Encantado**, é Estancia Vale Encantado; **Tapera**, é Fazenda Tapera; **Santa Marina** ou **São Vicente**, é Sitio Santa Marina. Isso vale para qualquer documento: nota do produtor, nota de fornecedor (endereço do produtor impresso na nota, ex.: posto, loja, agropecuária), GTA, CT-e, recibo. Apelidos entre parênteses no campo `indea` de `meta/ies` contam como nome da propriedade em que aparecem.
 
-Ordem prática (o `classificar` já faz 1 a 5 com o XML):
-1. **Nota emitida pelo produtor** (venda, complemento, devolução): nome da propriedade no cabeçalho (razão social, fantasia ou endereço do emitente).
-2. **Nota de fornecedor**: nome da propriedade no destinatário (nome, fantasia ou endereço do produtor escrito na nota).
-3. **Complemento ou devolução**: a mesma propriedade da nota de origem (chave referenciada ou "REF. NF ...").
-4. Nome da propriedade nas informações complementares ou nos itens. A frase "PROPRIEDADE COM I.E. UNIFICADA FAZENDA ..." não decide sozinha (é o nome-mestre da inscrição).
-5. **Só se nada estiver escrito**: regra por data de `meta/regras`. Nesse caso escreva em `notes`: "Propriedade pela data: o documento não indica a propriedade". Muitas notas de despesa (supermercado, cupom) não trazem a propriedade, e aí a data decide.
+Ordem prática:
+1. **GTA** — nunca está errada e vale mais que tudo: na venda, a propriedade de **origem**; na compra, a de **destino**. **CT-e de frete** segue a GTA do gado que ele transportou (ache a nota/GTA citada no CT-e), mesmo que o CT-e escreva outra fazenda.
+2. **"PROPRIEDADE COM I.E. UNIFICADA FAZENDA TAPERA"** escrito em qualquer parte → Fazenda Tapera, mesmo que o endereço da nota seja de outra propriedade.
+3. **Nota emitida pelo produtor** (venda, complemento, devolução): nome da propriedade no cabeçalho (razão social, fantasia ou endereço do emitente).
+4. **Nota de fornecedor**: nome da propriedade no destinatário (nome, fantasia ou endereço do produtor escrito na nota).
+5. **Complemento ou devolução**: a mesma propriedade da nota de origem (chave referenciada ou "REF. NF ...").
+6. Nome da propriedade nas informações complementares ou nos itens.
+7. **Só se nada estiver escrito**: regra por data de `meta/regras`. Nesse caso escreva em `notes`: "Propriedade pela data: o documento não indica a propriedade". Muitas notas de despesa (supermercado, cupom) não trazem a propriedade, e aí a data decide.
+
+Depois de tudo, aplique `meta/regras.substituir_propriedade` (períodos em que o produtor decidiu trocar uma propriedade por outra; ex.: jul–ago/2026 não há Vale Encantado, é Sitio Santa Marina). O `classificar` já faz 2 a 7 e a substituição com o XML; a GTA você confere lendo os PDFs.
 
 Nos PDFs/fotos sem XML (escaneados), faça a mesma leitura no texto (OCR) antes de usar a data. Grave em `propMotivo` o trecho que decidiu.
-Se dois documentos do mesmo lançamento escreverem propriedades diferentes (ex.: CT-e diz uma, GTA diz outra), não escolha: lance pela nota principal e escreva a divergência em `notes` para o produtor decidir.
+Se a nota e a GTA de uma compra/venda de gado escreverem propriedades diferentes, lance pela GTA e escreva a divergência em `notes` para o produtor conferir.
 
 ## 3. Arquivos da pasta INSERIR ARQUIVOS
 
