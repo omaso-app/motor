@@ -47,6 +47,17 @@ Para achar ou criar cada nível: `search_files` com `parentId = '<id do nível d
 
 Atenção: lançamentos antigos podem ter `pasta` começando com um nome antigo do produtor. O primeiro nível é sempre o campo `pasta` da inscrição em `meta/ies`.
 
+### Propriedade de cada lançamento (conferir SEMPRE no documento, nunca só pela data)
+
+Nesta ordem, a primeira que der resposta vale:
+1. **GTA**: na venda vale a propriedade de **origem**; na compra, a de **destino**. Leia a GTA anexa (ou a que tem o número citado na nota). "Sitio São Vicente" e outros apelidos entre parênteses no campo `indea` de `meta/ies` são da propriedade em que aparecem.
+2. **Nota emitida pelo produtor** (venda, complemento, devolução): o nome da propriedade escrito no **cabeçalho** (razão social do emitente, ex.: "WALDIR ... - FAZENDA TAPERA", ou o endereço do emitente). O `classificar` já faz isso.
+3. **Complemento ou devolução**: a mesma propriedade da nota de origem (chave referenciada ou "REF. NF ..." nas informações complementares).
+4. Nome da propriedade nas informações complementares ou nos itens. **Não conta** a frase "PROPRIEDADE COM I.E. UNIFICADA FAZENDA ..." (é o nome-mestre da inscrição).
+5. Só então a regra por data de `meta/regras`. Nesse caso escreva em `notes`: "Propriedade pela data: o documento não indica a propriedade".
+
+O endereço do produtor que aparece em nota de **fornecedor** (posto, loja, transportadora) vem do cadastro do fornecedor e costuma estar desatualizado: não use para decidir a propriedade. Se ele contrariar a regra, só registre em `notes` para o produtor conferir.
+
 ## 3. Arquivos da pasta INSERIR ARQUIVOS
 
 Para cada arquivo:
@@ -61,7 +72,7 @@ Para cada arquivo:
    - **antes de tudo, confira as partes**: só é lançamento se o produtor (CPF/CNPJ ou IE de `meta/ies`) for o **emitente ou o destinatário/tomador**. Nota entre terceiros (ex.: do vendedor para um intermediário que depois revendeu ao produtor) → mova para `_Documentos Gerais/Outras Empresas e Terceiros`, sem lançamento;
    - é a nota/recibo de um lançamento que já existe (mesmo número, emitente e valor)? → mova o arquivo para a pasta desse lançamento e acrescente o arquivo em `arquivos`/`links` dele (e tire a pendência correspondente das notas, se for o comprovante que faltava);
    - é comprovante de pagamento de uma nota que já existe? → mesma coisa; se o pagamento muda o mês, avise no resumo (não mova o lançamento de mês sozinho);
-   - é um documento novo de despesa/compra/venda → lançamento novo (passo 5), classificado pelas mesmas regras (propriedade por data, categoria pelo fornecedor);
+   - é um documento novo de despesa/compra/venda → lançamento novo (passo 5), classificado pelas mesmas regras (propriedade conforme a seção "Propriedade de cada lançamento", categoria pelo fornecedor);
    - pagamento sem documento fiscal → categoria `000 - A Identificar`, kind `idn`, com a nota "Pagamento/recebimento sem documento fiscal (<quem> — R$<valor>): informar se é da atividade rural";
    - boleto sozinho → não lance; deixe em INSERIR ARQUIVOS e diga no resumo;
    - não deu para entender → deixe em INSERIR ARQUIVOS e diga no resumo.
