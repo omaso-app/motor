@@ -67,25 +67,51 @@ def _nomes_prop(ie):
     return m
 
 
+_UNIF = re.compile(r'I\.?\s*E\.?\s*UNIFICADA\s+([A-Z ]{3,40})')
+
+
+def _unificada(nomes, texto):
+    """"PROPRIEDADE COM I.E. UNIFICADA FAZENDA TAPERA" -> Fazenda Tapera (decisao do produtor, 11/10/2026)."""
+    m = _UNIF.search(_U(texto))
+    if not m:
+        return None
+    achou = {p for k, p in nomes.items() if k and k in m.group(1)}
+    return achou.pop() if len(achou) == 1 else None
+
+
 def _achar(nomes, texto):
-    t = _U(texto)
-    # "PROPRIEDADE COM I.E. UNIFICADA FAZENDA X" e o nome-mestre da inscricao, nao o local da operacao
-    t = re.sub(r'I\.?\s*E\.?\s*UNIFICADA\s+[A-Z ]{0,40}', ' ', t)
+    t = _UNIF.sub(' ', _U(texto))
     achou = {p for k, p in nomes.items() if k and k in t}
     return sorted(achou)
 
 
-def propriedade(ie, regras, rec, data, db=None, emitida_pelo_produtor=False):
+def _substituir(regras, prop, data, como):
+    """meta/regras.substituir_propriedade: [{"de", "para", "desde", "ate"}] — decisao do produtor para um periodo."""
+    for r in regras.get('substituir_propriedade', []):
+        if prop == r.get('de') and r.get('desde', '0000') <= data <= r.get('ate', '9999'):
+            return r['para'], como + f" (no periodo {r.get('desde')} a {r.get('ate')} vale {r['para']})"
+    return prop, como
+
+
+def _propriedade(ie, regras, rec, data, db=None, emitida_pelo_produtor=False):
     """Propriedade do lancamento. Regra do produtor: vale o que esta ESCRITO no documento;
     a data so decide quando nenhum nome de propriedade aparece. Ordem:
+    0. "PROPRIEDADE COM I.E. UNIFICADA FAZENDA X" em qualquer parte -> essa propriedade (vale mais que o endereco);
     1. nota emitida pelo produtor: nome da propriedade no cabecalho (razao social, fantasia ou endereco do emitente);
     2. nota de fornecedor: nome da propriedade no destinatario (nome, fantasia ou endereco do produtor na nota);
     3. nota que referencia outra ja lancada (complemento/devolucao): a propriedade da nota de origem;
-    4. nome da propriedade nas informacoes complementares ou nos itens (ignora "I.E. UNIFICADA ...");
+    4. nome da propriedade nas informacoes complementares ou nos itens;
     5. regra por data em meta/regras (com aviso: sem indicacao no documento).
     "Sao Vicente" conta como Sitio Santa Marina (apelido no campo indea)."""
     nomes = _nomes_prop(ie)
     props = [p['nome'] for p in ie.get('propriedades', [])]
+    em, de = rec.get('emitente') or {}, rec.get('destinatario') or {}
+    tudo = ' '.join([em.get('nome', ''), em.get('fantasia', ''), em.get('endereco', ''),
+                     de.get('nome', ''), de.get('fantasia', ''), de.get('endereco', ''), rec.get('info', '') or '']
+                    + [p['descricao'] for p in rec.get('produtos', [])])
+    u = _unificada(nomes, tudo)
+    if u:
+        return u, 'escrito "I.E. UNIFICADA ' + _U(u) + '" no documento'
     if emitida_pelo_produtor:
         em = rec.get('emitente') or {}
         a = _achar(nomes, ' '.join([em.get('nome', ''), em.get('fantasia', ''), em.get('endereco', '')]))
@@ -108,6 +134,13 @@ def propriedade(ie, regras, rec, data, db=None, emitida_pelo_produtor=False):
         if ('ate' in r and data <= r['ate']) or ('desde' in r and data >= r['desde']):
             return r['prop'], 'regra por data (sem indicacao no documento: conferir GTA)'
     return (props[0] if props else 'Propriedade'), 'primeira cadastrada (sem indicacao no documento)'
+
+
+def propriedade(ie, regras, rec, data, db=None, emitida_pelo_produtor=False):
+    """Ver _propriedade. Depois aplica meta/regras.substituir_propriedade (ex.: jul-ago/2026 sem Vale Encantado).
+    A GTA (origem na venda, destino na compra) vale mais que tudo e e conferida na leitura dos PDFs."""
+    prop, como = _propriedade(ie, regras, rec, data, db, emitida_pelo_produtor)
+    return _substituir(regras, prop, data, como)
 
 
 def categoria(regras, rec):
