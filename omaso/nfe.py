@@ -34,7 +34,9 @@ def _pessoa(el):
         return {}
     return {'nome': _t(el, 'xNome'), 'doc': _t(el, 'CNPJ') or _t(el, 'CPF'),
             'ie': _t(el, 'IE'), 'uf': _t(el, 'enderEmit/UF') or _t(el, 'enderDest/UF'),
-            'mun': _t(el, 'enderEmit/xMun') or _t(el, 'enderDest/xMun')}
+            'mun': _t(el, 'enderEmit/xMun') or _t(el, 'enderDest/xMun'),
+            'fantasia': _t(el, 'xFant'),
+            'endereco': ' '.join(x for x in (_t(el, f'{e}/{c}') for e in ('enderEmit', 'enderDest') for c in ('xLgr', 'nro', 'xCpl', 'xBairro')) if x)}
 
 
 def ler(path):
