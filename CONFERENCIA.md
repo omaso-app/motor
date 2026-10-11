@@ -47,16 +47,19 @@ Para achar ou criar cada nível: `search_files` com `parentId = '<id do nível d
 
 Atenção: lançamentos antigos podem ter `pasta` começando com um nome antigo do produtor. O primeiro nível é sempre o campo `pasta` da inscrição em `meta/ies`.
 
-### Propriedade de cada lançamento (conferir SEMPRE no documento, nunca só pela data)
+### Propriedade de cada lançamento (regra do produtor: vale o que está ESCRITO no documento)
 
-Nesta ordem, a primeira que der resposta vale:
-1. **GTA**: na venda vale a propriedade de **origem**; na compra, a de **destino**. Leia a GTA anexa (ou a que tem o número citado na nota). "Sitio São Vicente" e outros apelidos entre parênteses no campo `indea` de `meta/ies` são da propriedade em que aparecem.
-2. **Nota emitida pelo produtor** (venda, complemento, devolução): o nome da propriedade escrito no **cabeçalho** (razão social do emitente, ex.: "WALDIR ... - FAZENDA TAPERA", ou o endereço do emitente). O `classificar` já faz isso.
-3. **Complemento ou devolução**: a mesma propriedade da nota de origem (chave referenciada ou "REF. NF ..." nas informações complementares).
-4. Nome da propriedade nas informações complementares ou nos itens. **Não conta** a frase "PROPRIEDADE COM I.E. UNIFICADA FAZENDA ..." (é o nome-mestre da inscrição).
-5. Só então a regra por data de `meta/regras`. Nesse caso escreva em `notes`: "Propriedade pela data: o documento não indica a propriedade".
+Leia o documento inteiro procurando o nome da propriedade. Se estiver escrito **Vale Encantado**, é Estancia Vale Encantado; **Tapera**, é Fazenda Tapera; **Santa Marina** ou **São Vicente**, é Sitio Santa Marina. Isso vale para qualquer documento: nota do produtor, nota de fornecedor (endereço do produtor impresso na nota, ex.: posto, loja, agropecuária), GTA, CT-e, recibo. Apelidos entre parênteses no campo `indea` de `meta/ies` contam como nome da propriedade em que aparecem.
 
-O endereço do produtor que aparece em nota de **fornecedor** (posto, loja, transportadora) vem do cadastro do fornecedor e costuma estar desatualizado: não use para decidir a propriedade. Se ele contrariar a regra, só registre em `notes` para o produtor conferir.
+Ordem prática (o `classificar` já faz 1 a 5 com o XML):
+1. **Nota emitida pelo produtor** (venda, complemento, devolução): nome da propriedade no cabeçalho (razão social, fantasia ou endereço do emitente).
+2. **Nota de fornecedor**: nome da propriedade no destinatário (nome, fantasia ou endereço do produtor escrito na nota).
+3. **Complemento ou devolução**: a mesma propriedade da nota de origem (chave referenciada ou "REF. NF ...").
+4. Nome da propriedade nas informações complementares ou nos itens. A frase "PROPRIEDADE COM I.E. UNIFICADA FAZENDA ..." não decide sozinha (é o nome-mestre da inscrição).
+5. **Só se nada estiver escrito**: regra por data de `meta/regras`. Nesse caso escreva em `notes`: "Propriedade pela data: o documento não indica a propriedade". Muitas notas de despesa (supermercado, cupom) não trazem a propriedade, e aí a data decide.
+
+Nos PDFs/fotos sem XML (escaneados), faça a mesma leitura no texto (OCR) antes de usar a data. Grave em `propMotivo` o trecho que decidiu.
+Se dois documentos do mesmo lançamento escreverem propriedades diferentes (ex.: CT-e diz uma, GTA diz outra), não escolha: lance pela nota principal e escreva a divergência em `notes` para o produtor decidir.
 
 ## 3. Arquivos da pasta INSERIR ARQUIVOS
 
