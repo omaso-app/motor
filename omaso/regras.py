@@ -51,16 +51,57 @@ def doc_do_cliente(db, pessoa):
     return next((i for i in db.ies if re.sub(r'\D', '', i.get('doc', '')) == d), None) if d else None
 
 
-def propriedade(ie, regras, rec, data):
+def _nomes_prop(ie):
+    """{NOME EM MAIUSCULAS: propriedade}. Inclui o nome sem o tipo (TAPERA) e apelidos entre parenteses
+    no campo indea, ex.: "51000319485 (Sao Vicente)" -> SAO VICENTE vale para essa propriedade."""
+    m = {}
+    for p in ie.get('propriedades', []):
+        n = p['nome']
+        m[_U(n)] = n
+        resto = n.split(' ', 1)[-1]
+        if len(resto) >= 5:
+            m[_U(resto)] = n
+        for a in re.findall(r'\(([^)]+)\)', p.get('indea', '') or ''):
+            m[_U(a).strip()] = n
+            m[_U('SITIO ' + a).strip()] = n
+    return m
+
+
+def _achar(nomes, texto):
+    t = _U(texto)
+    # "PROPRIEDADE COM I.E. UNIFICADA FAZENDA X" e o nome-mestre da inscricao, nao o local da operacao
+    t = re.sub(r'I\.?\s*E\.?\s*UNIFICADA\s+[A-Z ]{0,40}', ' ', t)
+    achou = {p for k, p in nomes.items() if k and k in t}
+    return sorted(achou)
+
+
+def propriedade(ie, regras, rec, data, db=None, emitida_pelo_produtor=False):
+    """Propriedade do lancamento, nesta ordem:
+    1. nota emitida pelo produtor: nome da propriedade no cabecalho (razao social, fantasia ou endereco do emitente);
+    2. nota que referencia outra ja lancada (complemento/devolucao): a propriedade da nota de origem;
+    3. nome da propriedade nas informacoes complementares ou nos itens (ignora "I.E. UNIFICADA ...");
+    4. regra por data em meta/regras (com aviso: sem indicacao no documento).
+    O endereco do produtor no cadastro do FORNECEDOR nao conta: muitas vezes esta desatualizado.
+    A GTA (origem na venda, destino na compra) vale mais que tudo isso e e conferida na leitura dos PDFs."""
+    nomes = _nomes_prop(ie)
     props = [p['nome'] for p in ie.get('propriedades', [])]
-    texto = _U(rec.get('info', '') + ' ' + ' '.join(p['descricao'] for p in rec.get('produtos', [])))
-    for p in props:
-        if _U(p) in texto or _U(p.split(' ', 1)[-1]) in texto:
-            return p, 'citada no documento'
+    if emitida_pelo_produtor:
+        em = rec.get('emitente') or {}
+        a = _achar(nomes, ' '.join([em.get('nome', ''), em.get('fantasia', ''), em.get('endereco', '')]))
+        if len(a) == 1:
+            return a[0], 'cabecalho da nota do produtor'
+    if db is not None:
+        for ref in rec.get('refs') or []:
+            t = next((x for x in db.txs if ref in (x.get('chaves') or []) and not x.get('excluido')), None)
+            if t and t.get('prop'):
+                return t['prop'], 'mesma propriedade da nota de origem'
+    a = _achar(nomes, (rec.get('info', '') or '') + ' ' + ' '.join(p['descricao'] for p in rec.get('produtos', [])))
+    if len(a) == 1:
+        return a[0], 'citada no documento'
     for r in regras.get('propriedade_por_data', []):
         if ('ate' in r and data <= r['ate']) or ('desde' in r and data >= r['desde']):
-            return r['prop'], 'regra por data'
-    return (props[0] if props else 'Propriedade'), 'primeira cadastrada'
+            return r['prop'], 'regra por data (sem indicacao no documento: conferir GTA)'
+    return (props[0] if props else 'Propriedade'), 'primeira cadastrada (sem indicacao no documento)'
 
 
 def categoria(regras, rec):
@@ -150,7 +191,7 @@ def classificar(db, rec):
         else:
             kind, cat, cab = 'desp', categoria(regras, rec), 0
 
-    prop, como = propriedade(ie, regras, rec, data)
+    prop, como = propriedade(ie, regras, rec, data, db, bool(em_ie and not de_ie))
     ap = apelido(regras, outro)
     num = rec['numero']
     if kind in ('venda', 'compra'):
