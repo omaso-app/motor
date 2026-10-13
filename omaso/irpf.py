@@ -39,7 +39,7 @@ def _desc(t):
 
 
 def gerar(ie, ano, ts, out):
-    """Grava <out>/<pasta da IE>/Resumo_IRPF_Rural/Resumo_IRPF_Rural_<Nome>_<ano>.xlsx; devolve (caminho relativo, Workbook)."""
+    """Grava <out>/<pasta da IE>/_Resumo IRPF Rural/Resumo_IRPF_Rural_<Nome>_<ano>.xlsx; devolve (caminho relativo, Workbook)."""
     ano = str(ano)
     ts = sorted([t for t in ativos(ts) if (t.get('date') or '')[:4] == ano], key=lambda t: (t['date'], t.get('cat', '')))
     lanc = [t for t in ts if not is_idn(t)]
@@ -146,7 +146,7 @@ def gerar(ie, ano, ts, out):
     for col, w in zip('ABCDE', [11, 22, 48, 16, 60]):
         wi.column_dimensions[col].width = w
 
-    rel = f"{ie['pasta']}/Resumo_IRPF_Rural/Resumo_IRPF_Rural_{nome_arquivo(ie)}_{ano}.xlsx"
+    rel = f"{ie['pasta']}/_Resumo IRPF Rural/Resumo_IRPF_Rural_{nome_arquivo(ie)}_{ano}.xlsx"
     os.makedirs(os.path.dirname(os.path.join(out, rel)), exist_ok=True)
     wb.save(os.path.join(out, rel))
     return rel, wb
