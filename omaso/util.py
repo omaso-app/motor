@@ -72,5 +72,5 @@ def notas_abertas(t):
 
 
 def ativos(ts):
-    """Lançamentos válidos para relatório (exclui os marcados como excluídos)."""
-    return [t for t in ts if not t.get('excluido')]
+    """Lançamentos válidos para relatório (exclui os excluídos e os marcados como fora da atividade rural)."""
+    return [t for t in ts if not t.get('excluido') and not t.get('fora')]
