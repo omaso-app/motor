@@ -7,6 +7,7 @@ Formato de meta/regras (banco do OMASO do cliente):
       "inicio": "AAAA-MM-DD",                 # notas anteriores vão para _Documentos Gerais
       "cat_padrao": "698 - Despesas Gerais",  # despesa sem regra
       "propriedade_por_data": [{"ate": "AAAA-MM-DD", "prop": "..."}, {"desde": "AAAA-MM-DD", "prop": "..."}],
+      "ativas": {"props": ["..."], "desde": "AAAA-MM-DD"},  # propriedades ativas (aba Inscricoes): sem indicacao no documento, vale a primeira ativa
       "fornecedores": [                       # a primeira regra que casar vale
         {"emitente_contem": ["POSTO"], "produto_contem": ["SAL"], "cat": "575 - Sal Mineral"}
       ],
@@ -130,6 +131,10 @@ def _propriedade(ie, regras, rec, data, db=None, emitida_pelo_produtor=False):
     a = _achar(nomes, (rec.get('info', '') or '') + ' ' + ' '.join(p['descricao'] for p in rec.get('produtos', [])))
     if len(a) == 1:
         return a[0], 'citada no documento'
+    at = regras.get('ativas') or {}
+    if at.get('props') and str(data) >= str(at.get('desde') or '0000-00-00'):
+        ps = [p for p in props if p in at['props']] or list(at['props'])
+        return ps[0], 'propriedade ativa escolhida pelo produtor (sem indicacao no documento)'
     for r in regras.get('propriedade_por_data', []):
         if ('ate' in r and data <= r['ate']) or ('desde' in r and data >= r['desde']):
             return r['prop'], 'regra por data (sem indicacao no documento: conferir GTA)'
