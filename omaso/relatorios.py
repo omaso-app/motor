@@ -86,12 +86,25 @@ def _props(ie, ts):
     return [p for p in ordem + extra if any(t['prop'] == p for t in ts)]
 
 
+# OUTRAS_RECEITAS_PATCH
+GADO_VENDA = 'Venda de Bovinos'
+
+
 def _split(ts):
     desp = [t for t in ts if t['kind'] == 'desp' and not is_idn(t)]
     comp = [t for t in ts if t['kind'] == 'compra']
-    vend = [t for t in ts if t['kind'] == 'venda']
+    vend = [t for t in ts if t['kind'] == 'venda' and t.get('cat') == GADO_VENDA]
     idn = [t for t in ts if is_idn(t)]
     return desp, comp, vend, idn
+
+
+def _outras(ts):
+    """Receitas da atividade rural que não são venda de gado (ex.: Outras Receitas da Atividade Rural)."""
+    return [t for t in ts if t['kind'] == 'venda' and t.get('cat') != GADO_VENDA and not is_idn(t)]
+
+
+def _osub(ol):
+    return f" · fora isso, outras receitas: {money(S(ol))}" if ol else ''
 
 
 def _npend(ts):
@@ -104,6 +117,7 @@ def mensal(ie, prop, ym, ts):
     mes = f"{MESES_TXT[int(m)]} de {y}"
     desp, comp, vend, idn = _split(ts)
     sd, sc, sv = S(desp), S(comp), S(vend)
+    ol = _outras(ts)
     bycat = collections.OrderedDict()
     for t in sorted(desp, key=lambda t: t['cat']):
         bycat.setdefault(t['cat'], []).append(t)
@@ -139,7 +153,7 @@ def mensal(ie, prop, ym, ts):
 <div class='cards'>
 <div class='card desp'><div class='lbl'>Despesas</div><div class='val'>{money(sd) if sd else 'R$ 0,00'}</div><div class='sub'>{len(desp)} lançamento(s)</div></div>
 <div class='card compra'><div class='lbl'>Compra de animais</div><div class='val'>{money(sc) if sc else 'R$ 0,00'}</div><div class='sub'>{H(comp)} cabeça(s) · {len(comp)} operação(ões)</div></div>
-<div class='card venda'><div class='lbl'>Venda de animais</div><div class='val'>{money(sv) if sv else 'R$ 0,00'}</div><div class='sub'>{H(vend)} cabeça(s) · {len(vend)} operação(ões)</div></div>
+<div class='card venda'><div class='lbl'>Venda de animais</div><div class='val'>{money(sv) if sv else 'R$ 0,00'}</div><div class='sub'>{H(vend)} cabeça(s) · {len(vend)} operação(ões){_osub(ol)}</div></div>
 </div>
 <h2>Despesas por categoria</h2><table><tr><th>Categoria</th><th class='n'>Lanç.</th><th class='n'>Valor</th></tr>{rows}</table>
 <h2>Lançamentos do mês</h2><table style='table-layout:fixed'><colgroup><col style='width:7%'><col style='width:21%'><col style='width:42%'><col style='width:9%'><col style='width:13%'><col style='width:8%'></colgroup><tr><th>Data</th><th>Categoria</th><th>Operação</th><th class='n'>Cab.</th><th class='n'>Valor</th><th>Docs</th></tr>{lanc or "<tr><td colspan=6>Nenhum lançamento.</td></tr>"}</table>
@@ -149,20 +163,29 @@ def mensal(ie, prop, ym, ts):
 </body></html>"""
 
 
+def _mm_head(ts):
+    oc = "<th class='n'>Outras rec.</th>" if _outras(ts) else ''
+    return (f"<tr><th>Mês</th><th class='n'>Despesas</th><th class='n'>Compras</th><th class='n'>Cab.</th><th class='n'>Vendas de gado</th>"
+            f"<th class='n'>Cab.</th>{oc}<th class='n'>Resultado</th><th class='n'>Pend.</th></tr>")
+
+
 def _mes_a_mes(y, ts, months):
     desp, comp, vend, _ = _split(ts)
-    sd, sc, sv = S(desp), S(comp), S(vend)
+    outr = _outras(ts)
+    sd, sc, sv, so = S(desp), S(comp), S(vend), S(outr)
     rows = ''
     for m in months:
         f = lambda l: [t for t in l if int(t['date'][5:7]) == m]
-        d, c, v = S(f(desp)), S(f(comp)), S(f(vend))
-        r = v - c - d
+        d, c, v, o = S(f(desp)), S(f(comp)), S(f(vend)), S(f(outr))
+        r = v + o - c - d
         neg = ' style="color:#8a2a2a"' if r < 0 else ''
         np_ = _npend(f(ts))
+        oc = f"<td class='n'>{m0(o)}</td>" if outr else ''
         rows += (f"<tr><td>{MESES_TXT[m]}</td><td class='n'>{m0(d)}</td><td class='n'>{m0(c)}</td><td class='n'>{H(f(comp)) or '—'}</td>"
-                 f"<td class='n'>{m0(v)}</td><td class='n'>{H(f(vend)) or '—'}</td><td class='n'{neg}>{brl(r)}</td><td class='n'>{np_ or '—'}</td></tr>")
+                 f"<td class='n'>{m0(v)}</td><td class='n'>{H(f(vend)) or '—'}</td>{oc}<td class='n'{neg}>{brl(r)}</td><td class='n'>{np_ or '—'}</td></tr>")
+    oc = f"<td class='n'>{m0(so)}</td>" if outr else ''
     rows += (f"<tr class='tot'><td>Total {y}</td><td class='n'>{m0(sd)}</td><td class='n'>{m0(sc)}</td><td class='n'>{H(comp) or '—'}</td>"
-             f"<td class='n'>{m0(sv)}</td><td class='n'>{H(vend) or '—'}</td><td class='n'>{brl(sv - sc - sd)}</td><td></td></tr>")
+             f"<td class='n'>{m0(sv)}</td><td class='n'>{H(vend) or '—'}</td>{oc}<td class='n'>{brl(sv + so - sc - sd)}</td><td></td></tr>")
     return rows
 
 
@@ -173,7 +196,10 @@ def _matriz(ts, months):
         bc[t['cat']].append(t)
     mh = ''.join(f"<th class='n'>{ABR[m]}</th>" for m in months)
     mx = ''
-    for c, l in [('Venda de Bovinos', vend), ('Compra de Animais Bovinos', comp)] + [(c, bc[c]) for c in sorted(bc)]:
+    oc = collections.defaultdict(list)
+    for t in _outras(ts):
+        oc[t['cat']].append(t)
+    for c, l in [('Venda de Bovinos', vend)] + [(c, oc[c]) for c in sorted(oc)] + [('Compra de Animais Bovinos', comp)] + [(c, bc[c]) for c in sorted(bc)]:
         if not l:
             continue
         cells = ''
@@ -184,14 +210,14 @@ def _matriz(ts, months):
     return f"<table class='mx'><tr><th>Categoria</th>{mh}<th class='n'>Total</th></tr>{mx}</table>"
 
 
-def _cards4(desp, comp, vend):
-    sd, sc, sv = S(desp), S(comp), S(vend)
-    res = sv - sc - sd
+def _cards4(desp, comp, vend, ol=()):
+    sd, sc, sv, so = S(desp), S(comp), S(vend), S(ol)
+    res = sv + so - sc - sd
     return f"""<div class='cards'>
-<div class='card venda'><div class='lbl'>Venda de animais</div><div class='val'>{money(sv)}</div><div class='sub'>{H(vend)} cabeça(s) · {len(vend)} operação(ões)</div></div>
+<div class='card venda'><div class='lbl'>Venda de animais</div><div class='val'>{money(sv)}</div><div class='sub'>{H(vend)} cabeça(s) · {len(vend)} operação(ões){_osub(ol)}</div></div>
 <div class='card compra'><div class='lbl'>Compra de animais</div><div class='val'>{money(sc)}</div><div class='sub'>{H(comp)} cabeça(s) · {len(comp)} operação(ões)</div></div>
 <div class='card desp'><div class='lbl'>Despesas</div><div class='val'>{money(sd)}</div><div class='sub'>{len(desp)} lançamento(s)</div></div>
-<div class='card res{' neg' if res < 0 else ''}'><div class='lbl'>Resultado de caixa</div><div class='val'>R$ {brl(res)}</div><div class='sub'>vendas − compras − despesas</div></div>
+<div class='card res{' neg' if res < 0 else ''}'><div class='lbl'>Resultado de caixa</div><div class='val'>R$ {brl(res)}</div><div class='sub'>{'vendas + outras receitas − compras − despesas' if so else 'vendas − compras − despesas'}</div></div>
 </div>"""
 
 
@@ -219,8 +245,8 @@ def anual(ie, prop, y, ts):
             + _meta(ie, f'Propriedade: {E(prop)}') + "</header>")
     return f"""<!doctype html><html lang='pt-BR'><head><meta charset='utf-8'><title>Relatório Anual {y} — {E(prop)}</title><style>{CSS_ANUAL}</style></head><body>
 <div class='page'>{head}
-{_cards4(desp, comp, vend)}
-<h2>Mês a mês (R$)</h2><table><tr><th>Mês</th><th class='n'>Despesas</th><th class='n'>Compras</th><th class='n'>Cab.</th><th class='n'>Vendas</th><th class='n'>Cab.</th><th class='n'>Resultado</th><th class='n'>Pend.</th></tr>{_mes_a_mes(y, ts, months)}</table>
+{_cards4(desp, comp, vend, _outras(ts))}
+<h2>Mês a mês (R$)</h2><table>{_mm_head(ts)}{_mes_a_mes(y, ts, months)}</table>
 <h2>Despesas por categoria no ano</h2><table><tr><th>Categoria</th><th class='n'>Lanç.</th><th class='n'>Valor</th><th class='n'>% das despesas</th></tr>{crow}</table>
 <div class='foot'>Totais somam os relatórios mensais desta propriedade. Mês de lançamento = data do pagamento/recebimento. Pagamentos “A Identificar” ficam fora dos totais. “Pend.” = pendências + itens a identificar do mês.</div>
 </div>
@@ -230,17 +256,21 @@ def anual(ie, prop, y, ts):
 
 def consolidado(ie, y, ts):
     desp, comp, vend, idn = _split(ts)
-    sd, sc, sv = S(desp), S(comp), S(vend)
-    res = sv - sc - sd
+    outr = _outras(ts)
+    sd, sc, sv, so = S(desp), S(comp), S(vend), S(outr)
+    res = sv + so - sc - sd
     props = _props(ie, ts)
     pr = ''
     for p in props:
         f = lambda l: [t for t in l if t['prop'] == p]
-        d, c, v = S(f(desp)), S(f(comp)), S(f(vend))
-        r = v - c - d
+        d, c, v, o = S(f(desp)), S(f(comp)), S(f(vend)), S(f(outr))
+        r = v + o - c - d
         neg = ' style="color:#8a2a2a"' if r < 0 else ''
-        pr += f"<tr><td>{E(p)}</td><td class='n'>{m0(v)}</td><td class='n'>{H(f(vend)) or '—'}</td><td class='n'>{m0(c)}</td><td class='n'>{H(f(comp)) or '—'}</td><td class='n'>{m0(d)}</td><td class='n'{neg}>{brl(r)}</td></tr>"
-    pr += f"<tr class='tot'><td>Total da inscrição</td><td class='n'>{m0(sv)}</td><td class='n'>{H(vend) or '—'}</td><td class='n'>{m0(sc)}</td><td class='n'>{H(comp) or '—'}</td><td class='n'>{m0(sd)}</td><td class='n'>{brl(res)}</td></tr>"
+        oc = f"<td class='n'>{m0(o)}</td>" if outr else ''
+        pr += f"<tr><td>{E(p)}</td><td class='n'>{m0(v)}</td><td class='n'>{H(f(vend)) or '—'}</td>{oc}<td class='n'>{m0(c)}</td><td class='n'>{H(f(comp)) or '—'}</td><td class='n'>{m0(d)}</td><td class='n'{neg}>{brl(r)}</td></tr>"
+    oc = f"<td class='n'>{m0(so)}</td>" if outr else ''
+    pr += f"<tr class='tot'><td>Total da inscrição</td><td class='n'>{m0(sv)}</td><td class='n'>{H(vend) or '—'}</td>{oc}<td class='n'>{m0(sc)}</td><td class='n'>{H(comp) or '—'}</td><td class='n'>{m0(sd)}</td><td class='n'>{brl(res)}</td></tr>"
+    prh = "<th class='n'>Outras rec.</th>" if outr else ''
     months = sorted({int(t['date'][5:7]) for t in ts})
     bc = collections.defaultdict(list)
     for t in desp:
@@ -261,9 +291,9 @@ def consolidado(ie, y, ts):
             + _meta(ie, f"Propriedades: {E(', '.join(props))}") + "</header>")
     return f"""<!doctype html><html lang='pt-BR'><head><meta charset='utf-8'><title>Relatório Anual Consolidado {y} — IE {E(ie['ie'])}</title><style>{CSS_CONS}</style></head><body>
 <div class='page'>{head}
-{_cards4(desp, comp, vend)}
-<h2>Por propriedade (R$)</h2><table><tr><th>Propriedade</th><th class='n'>Vendas</th><th class='n'>Cab.</th><th class='n'>Compras</th><th class='n'>Cab.</th><th class='n'>Despesas</th><th class='n'>Resultado</th></tr>{pr}</table>
-<h2>Mês a mês — todas as propriedades (R$)</h2><table><tr><th>Mês</th><th class='n'>Despesas</th><th class='n'>Compras</th><th class='n'>Cab.</th><th class='n'>Vendas</th><th class='n'>Cab.</th><th class='n'>Resultado</th><th class='n'>Pend.</th></tr>{_mes_a_mes(y, ts, months)}</table>
+{_cards4(desp, comp, vend, _outras(ts))}
+<h2>Por propriedade (R$)</h2><table><tr><th>Propriedade</th><th class='n'>Vendas de gado</th><th class='n'>Cab.</th>{prh}<th class='n'>Compras</th><th class='n'>Cab.</th><th class='n'>Despesas</th><th class='n'>Resultado</th></tr>{pr}</table>
+<h2>Mês a mês — todas as propriedades (R$)</h2><table>{_mm_head(ts)}{_mes_a_mes(y, ts, months)}</table>
 <div class='foot'>Soma dos relatórios anuais de cada propriedade da mesma inscrição estadual. Mês de lançamento = data do pagamento/recebimento. Pagamentos “A Identificar” e documentos fora da atividade rural ficam fora dos totais. Cabeças de compra negativas = devoluções.</div>
 </div>
 <div class='page'>{head}
@@ -278,7 +308,8 @@ def consolidado(ie, y, ts):
 def planejamento(ie, y, ts, hoje):
     mo = lambda v: 'R$ ' + brl(v)
     desp, comp, vend, idn = _split(ts)
-    sv, sc, sd = S(vend), S(comp), S(desp)
+    outr = _outras(ts)
+    sv, sc, sd = S(vend) + S(outr), S(comp), S(desp)
     res = sv - sc - sd
     lim = (hoje - dt.timedelta(days=90)).isoformat()
     rc = [t for t in comp if t['date'] >= lim and (t.get('heads') or 0) > 0 and (t.get('value') or 0) > 0]
@@ -296,8 +327,8 @@ def planejamento(ie, y, ts, hoje):
     pr = ''
     for p in props:
         f = lambda l: [t for t in l if t['prop'] == p]
-        r = S(f(vend)) - S(f(comp)) - S(f(desp))
-        pr += f"<tr><td>{E(p)}</td><td class='n'>{brl(S(f(vend)))}</td><td class='n'>{brl(S(f(comp)))}</td><td class='n'>{brl(S(f(desp)))}</td><td class='n'{' style=color:#8a2a2a' if r < 0 else ''}>{brl(r)}</td></tr>"
+        r = S(f(vend)) + S(f(outr)) - S(f(comp)) - S(f(desp))
+        pr += f"<tr><td>{E(p)}</td><td class='n'>{brl(S(f(vend)) + S(f(outr)))}</td><td class='n'>{brl(S(f(comp)))}</td><td class='n'>{brl(S(f(desp)))}</td><td class='n'{' style=color:#8a2a2a' if r < 0 else ''}>{brl(r)}</td></tr>"
     pr += f"<tr class='tot'><td>Total da IE {E(ie['ie'])}</td><td class='n'>{brl(sv)}</td><td class='n'>{brl(sc)}</td><td class='n'>{brl(sd)}</td><td class='n'>{brl(res)}</td></tr>"
     if len(precos) >= 4:
         pc = [round(precos[len(precos) // 4], -1), round(preco, -1), round(precos[3 * len(precos) // 4], -1)]
@@ -315,7 +346,7 @@ def planejamento(ie, y, ts, hoje):
 <div class='page'><header><div><div class='brand'>OMASO</div><h1>Planejamento de Fechamento {y}</h1><div style='font-size:12px;color:#4b5a50;margin-top:2px'>Quanto comprar em gado para o resultado da atividade rural de {y} ficar negativo · posição em {hj}</div></div>
 {_meta(ie, 'Todas as propriedades')}</header>
 <h2>Resultado de {y} até agora (R$)</h2>
-<table><tr><th>Propriedade</th><th class='n'>Vendas</th><th class='n'>Compras de gado</th><th class='n'>Despesas</th><th class='n'>Resultado</th></tr>{pr}</table>
+<table><tr><th>Propriedade</th><th class='n'>Receitas (vendas + outras)</th><th class='n'>Compras de gado</th><th class='n'>Despesas</th><th class='n'>Resultado</th></tr>{pr}</table>
 <div class='hl'><div class='lbl'>Para fechar {y} com resultado negativo, ainda é preciso comprar e PAGAR até 31/12 mais de</div>
 <div class='big'>{mo(need1)} ≈ {cab(need1)} cabeças</div>
 <div class='note'>Considerando nenhuma venda nova até o fim do ano, despesas normais de ≈ {mo(media)}/mês nos {falt} mês(es) restantes e preço médio de compra de {mo(preco)} por cabeça ({H(rc)} cabeças, {mo(S(rc))} nas compras usadas como base). Sem contar as despesas previstas: {mo(need0)} ≈ {cab(need0)} cabeças.</div></div>
