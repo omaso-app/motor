@@ -176,6 +176,45 @@ def pasta_geral(ie, sub):
     return f"{ie['pasta']}/{GERAIS}/{sub}"
 
 
+_TIPOS_PROP = r'(?:FAZENDA|FAZ\.?|SITIO|ESTANCIA|CHACARA|RANCHO|GLEBA|AGROPECUARIA)'
+_FIM_PROP = r'(?=\s*(?:[,;/]|-\s|S/?N\b|N[O\.]?\s*\d|\d|ZONA|ZN\b|KM\b|LOTE|LT\b|ROD\b|MT\b|CEP|$))'
+
+
+def _prop_escrita(rec, emitida_pelo_produtor):
+    """Nome de propriedade escrito no endereco do produtor (ex.: FAZENDA BOA VISTA), ou None."""
+    p = rec.get('emitente') if emitida_pelo_produtor else rec.get('destinatario')
+    p = p or {}
+    texto = _U(' '.join([p.get('nome', ''), p.get('fantasia', ''), p.get('endereco', '')]))
+    m = re.search(r'\b' + _TIPOS_PROP + r'\s+([A-Z0-9][A-Z0-9 ]{2,40}?)' + _FIM_PROP, texto)
+    if not m:
+        return None
+    return re.sub(r'\s+', ' ', m.group(0)).strip()
+
+
+def nota_propriedade(ie, regras, rec, data, prop, como, emitida_pelo_produtor=False):
+    """Pendencia que faz a interface perguntar a propriedade (pedido do produtor em 22/10/2026):
+    - documento cita uma propriedade que nao esta cadastrada -> 'Propriedade não cadastrada: "NOME" ...';
+    - documento indica uma propriedade desmarcada nas ativas -> 'Propriedade inativa: ...';
+    - documento nao indica nada e a decisao foi pela data (ou ha mais de uma ativa) -> 'Propriedade pela data: ...'.
+    Com uma so propriedade ativa e nada escrito, nao pergunta."""
+    nomes = _nomes_prop(ie)
+    sem_indicacao = como.startswith('regra por data') or como.startswith('primeira cadastrada') or como.startswith('propriedade ativa')
+    if sem_indicacao:
+        esc = _prop_escrita(rec, emitida_pelo_produtor)
+        if esc and not _achar(nomes, esc):
+            return f'Propriedade não cadastrada: "{esc}" está escrito no documento e não existe no OMASO. Lançado em {prop}: cadastrar a nova propriedade ou escolher a certa.'
+    at = regras.get('ativas') or {}
+    ativas = at.get('props') or []
+    if ativas and str(data) >= str(at.get('desde') or '0000-00-00'):
+        if not sem_indicacao and prop not in ativas:
+            return f'Propriedade inativa: o documento indica {prop}, que está desmarcada nas propriedades ativas ({como}). Confirmar a propriedade.'
+        if como.startswith('propriedade ativa'):
+            return None if len(ativas) == 1 else 'Propriedade pela data: o documento não indica a propriedade (lançado na primeira propriedade ativa)'
+    if como.startswith('regra por data') or como.startswith('primeira cadastrada'):
+        return 'Propriedade pela data: o documento não indica a propriedade'
+    return None
+
+
 def classificar(db, rec):
     out = {'avisos': []}
     if rec.get('tipo') == 'evento':
@@ -236,6 +275,7 @@ def classificar(db, rec):
             kind, cat, cab = 'desp', categoria(regras, rec), 0
 
     prop, como = propriedade(ie, regras, rec, data, db, bool(em_ie and not de_ie))
+    duvida = nota_propriedade(ie, regras, rec, data, prop, como, bool(em_ie and not de_ie))
     ap = apelido(regras, outro)
     num = rec['numero']
     if kind in ('venda', 'compra'):
@@ -252,6 +292,8 @@ def classificar(db, rec):
         notes.append(f"Falta o comprovante de pagamento da NF-e {num} ({ap} — R$ {brl(valor)})")
     elif kind == 'compra' and not dev:
         notes.append(f"Falta o comprovante de pagamento da NF {num} ({ap} — R$ {brl(valor)})")
+    if duvida:
+        notes.append(duvida)
     if rec['vencimentos']:
         out['avisos'].append('Nota a prazo: o mês do lançamento é o do pagamento. Vencimentos: ' +
                              ', '.join(f"{v['data']} R$ {brl(v['valor'])}" for v in rec['vencimentos']))

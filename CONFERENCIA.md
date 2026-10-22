@@ -60,6 +60,11 @@ Ordem prática:
 6. Nome da propriedade nas informações complementares ou nos itens.
 7. **Só se nada estiver escrito**: se `meta/regras.por_ie.<IE>.ativas` existir (propriedades ativas escolhidas pelo produtor na aba Inscrições) e a data do documento for a partir de `ativas.desde`, use a propriedade ativa. Se houver **uma só** ativa, não crie pendência (só grave em `propMotivo` "Propriedade ativa escolhida pelo produtor: o documento não indica a propriedade"). Se houver **mais de uma**, use a primeira da lista de propriedades da inscrição que estiver ativa e escreva em `notes` "Propriedade pela data: o documento não indica a propriedade (lançado na primeira propriedade ativa)", para a interface perguntar qual é a certa. Senão, regra por data de `meta/regras`. Nesse caso escreva em `notes`: "Propriedade pela data: o documento não indica a propriedade". Muitas notas de despesa (supermercado, cupom) não trazem a propriedade, e aí a data decide.
 
+**Perguntas de propriedade** (a interface mostra um pop-up com um botão por propriedade): o `classificar` já põe em `notes` uma destas pendências quando precisa; nos PDFs/fotos sem XML, faça o mesmo lendo o texto:
+- `Propriedade não cadastrada: "NOME" está escrito no documento e não existe no OMASO. Lançado em <prop>: cadastrar a nova propriedade ou escolher a certa.` — quando o documento escreve uma fazenda/sítio/estância que não está em `meta/ies` (lance na propriedade ativa ou pela data);
+- `Propriedade inativa: o documento indica <prop>, que está desmarcada nas propriedades ativas (...). Confirmar a propriedade.` — quando o documento indica uma propriedade que não está em `ativas.props` (lance onde está escrito);
+- `Propriedade pela data: o documento não indica a propriedade` — quando nada indica a propriedade e não há uma única propriedade ativa.
+
 Depois de tudo, aplique `meta/regras.substituir_propriedade` (períodos em que o produtor decidiu trocar uma propriedade por outra; ex.: jul–ago/2026 não há Vale Encantado, é Sitio Santa Marina). O `classificar` já faz 2 a 7 e a substituição com o XML; a GTA você confere lendo os PDFs.
 
 Nos PDFs/fotos sem XML (escaneados), faça a mesma leitura no texto (OCR) antes de usar a data. Grave em `propMotivo` o trecho que decidiu.
